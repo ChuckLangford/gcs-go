@@ -12,7 +12,7 @@ import (
 	"os"
 )
 
-func list(client *storage.Client, projectID string) ([]string, error) {
+func listBuckets(client *storage.Client, projectID string) ([]string, error) {
 	ctx := context.Background()
 	var buckets []string
 	it := client.Buckets(ctx, projectID)
@@ -27,6 +27,23 @@ func list(client *storage.Client, projectID string) ([]string, error) {
 		buckets = append(buckets, battrs.Name)
 	}
 	return buckets, nil
+}
+
+func listObjectsInBucket(client *storage.Client, bucket string) ([]string, error) {
+	ctx := context.Background()
+	var objectNames []string
+	it := client.Bucket(bucket).Objects(ctx, nil)
+	for {
+		attrs, err := it.Next()
+		if err == iterator.Done {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		objectNames = append(objectNames, attrs.Name)
+	}
+	return objectNames, nil
 }
 
 func main() {
@@ -49,9 +66,22 @@ func main() {
 		log.Fatal(err)
 	}
 
-	buckets, err := list(client, projectID)
+	buckets, err := listBuckets(client, projectID)
 	if err != nil {
 		log.Fatal(err)
 	}
 	fmt.Printf("buckets: %+v\n", buckets)
+
+	for _, bucket := range buckets {
+		fmt.Println()
+		fmt.Println(bucket)
+		objectNames, err := listObjectsInBucket(client, bucket)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		for _, objectName := range objectNames {
+			fmt.Println(objectName)
+		}
+	}
 }
