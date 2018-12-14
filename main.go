@@ -6,8 +6,10 @@ package main
 import (
 	"cloud.google.com/go/storage"
 	"context"
+	"flag"
 	"fmt"
 	"google.golang.org/api/iterator"
+	"io"
 	"log"
 	"os"
 )
@@ -42,11 +44,46 @@ func listObjectsInBucket(client *storage.Client, bucket string) ([]string, error
 			return nil, err
 		}
 		objectNames = append(objectNames, attrs.Name)
+		for _, meta := range attrs.Metadata {
+			objectNames = append(objectNames, meta)
+		}
 	}
 	return objectNames, nil
 }
 
+func write(client *storage.Client, bucket, object string, fileName string) error {
+	ctx := context.Background()
+
+	f, err := os.Open(fileName)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	wc := client.Bucket(bucket).Object(object).NewWriter(ctx)
+	if _, err = io.Copy(wc, f); err != nil {
+		return err
+	}
+	if err := wc.Close(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func delete(client *storage.Client, bucket, object string) error {
+	ctx := context.Background()
+	o := client.Bucket(bucket).Object(object)
+	if err := o.Delete(ctx); err != nil {
+		return err
+	}
+	return nil
+}
+
 func main() {
+	var a string
+	flag.StringVar(&a, "a", "", "This is the action to take. Valid values: write or delete.")
+	flag.Parse()
 	ctx := context.Background()
 
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
@@ -61,6 +98,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	bucket := os.Getenv("BUCKET_TO_USE")
+	if bucket == "" {
+		fmt.Fprintf(os.Stderr, "BUCKET_TO_USE environment variable must be set.\n")
+		os.Exit(1)
+	}
+
+	fileToUpload := os.Getenv("FILE_TO_UPLOAD")
+	if fileToUpload == "" {
+		fmt.Fprintf(os.Stderr, "FILE_TO_UPLOAD environment variable must be set.\n")
+		os.Exit(1)
+	}
+
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		log.Fatal(err)
@@ -72,16 +121,18 @@ func main() {
 	}
 	fmt.Printf("buckets: %+v\n", buckets)
 
-	for _, bucket := range buckets {
-		fmt.Println()
-		fmt.Println(bucket)
-		objectNames, err := listObjectsInBucket(client, bucket)
-		if err != nil {
-			log.Fatal(err)
-		}
+	if a == "write" {
+		write(client, bucket, "testobject", fileToUpload)
+	} else if a == "delete" {
+		delete(client, bucket, "testobject")
+	}
 
-		for _, objectName := range objectNames {
-			fmt.Println(objectName)
-		}
+	objectNames, err := listObjectsInBucket(client, bucket)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, objectName := range objectNames {
+		fmt.Println(objectName)
 	}
 }
